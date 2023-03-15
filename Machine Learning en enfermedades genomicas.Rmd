@@ -1,0 +1,426 @@
+---
+title: "Classification and diagnostic prediction of cancers using gene expression profiling and artificial neural networks"
+author: "Cristina Lendinez Gonzalez"
+date: '`r format(Sys.Date(),"%e de %B, %Y")`'
+output:
+ pdf_document:
+    latex_engine: xelatex
+    toc: yes
+    toc_depth: 2
+    highlight: zenburn
+    number_sections: true
+    df_print: kable
+    extra_dependencies: ["float"]
+ prettydoc::html_pretty:
+    toc: true
+    theme: cayman
+    highlight: zemburn
+    number_sections: true
+editor_options: 
+  chunk_output_type: console
+lang: es # language,  en: english (default), es: español, ca: catalan, ...
+
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+\pagebreak
+
+```{r}
+library(knitr)
+library(tinytex)
+```
+
+
+
+# Algoritmo Red Neuronal Artificial (ANN)
+
+
+Las redes neuronales artificiales se asemejan a las redes neuronales que posee el cerebro. Las neuronas son remplazadas por nodos que se encargan de recibir y enviar señales (información). Se crea un red con diferentes capas interconectadas para procesar la información. Cada capa esta formada por un grupo de nodos que transmite la información a los nodos de la capa siguiente.
+
+La caracteristicas de la red neuronal artificial son:
+
+- la topología: Esto corresponde a la cantidad de capas y nodos. Tiene en cuenta la dirreción en la que se transmite la informacion de un nodo al siguiente, bien dentro de las capas o entre capas
+
+- La función de activación: Gracias a esta función se reciben un conjunto de entradas e integras las señales para transmitir la información a otro nodo/capa.
+
+- El algoritmo de entrenamiento: Estable la importancia de cada conexion para decididr si debe transmitir la señal a los nodos correspondientes. El algoritmo mas usado es el "backpropagation" que esta basado en que para corregir los errores de prediccion va hacia atras de la red corrigiendo los pesos de los nodos.
+
+Las fortalezas y debilidades del algoritmo son los siguientes:
+
+
+| **Fortalezas**    | **Debilidades**  | 
+| ------------------------------------ |:------------------------------------|
+| - Adaptable a clasificación o problemas de predicción númerica. | - Propenso a sobreajustar los datos de entrenamiento. |
+| - Capaz de modelas patronas más complejos que casi cualquie otro algoritmo | - Es un modelo de caja negra complejo que es dificil, si no  imposible, de interpretar. |
+| - No necesita muchas restricciones acerca de las relaciones subyacentes de los datos. | - Requiere de gran potencia computacional y en general es de aprendizaje lento, particularmente si la topologia es compleja
+
+
+## Step 1 - Descarga y lectura de los datos
+
+Descargare los archivos csv, para poder emplezar el análisis, voy a
+cargar los archivos PCA, así me garantizo que estará bien hecho el
+ejercicio
+
+```{r}
+PCA <- read.csv("../Documentos PEC Cris/pcaComponents7 (5).csv")
+clases <- read.csv("../Documentos PEC Cris/class7 (4).csv")
+```
+
+Cargo los datos para ver si me da tiempo hacer el pca(hare el pca pero
+tirare de los datos que nos da el profesor).
+
+```{r}
+datos <- read.csv("./data7 (5).csv")
+```
+
+Como solo tengo que coger 10 datos, voy a selecionar las 10 primeras
+columnas del dataset PCA
+
+```{r}
+PCA_10 <- PCA[,1:10]
+```
+
+Voy a hacer una exploracion de los datos que he selecionado del dataframe creado PCA_10
+
+```{r}
+boxplot(PCA_10, main="Datos PCA", col = "lightsalmon2")
+```
+
+Voy a ver cuantas observaciones tengo
+
+```{r}
+dim(PCA_10)
+str(PCA_10)
+```
+
+##  Step 2. Normalizar las variables.
+
+Voy a normalizar las variables para que los valores esten entre 0 y 1. Para ello generaremos una función con el nombre de `normalizar` y despues se realizara otro boxplot para observar la diferencia.
+
+```{r}
+normal = function(x) {
+  return((x - min(x)) / (max(x) - min(x)))
+}
+```
+
+
+```{r}
+PCA_Normalizados = as.data.frame(lapply(PCA_10, normal))
+summary(PCA_Normalizados)
+```
+
+```{r}
+boxplot(PCA_Normalizados, main="Datos PCA Normalizados", col = "palegreen3")
+```
+
+## Poner las etiquetas
+
+
+Los distintos fenotipos están registrados de manera numérica, así que creamos las etiquetas que se indican en el enunciado y se las ponemos a cada una de las distintas clases:
+
+```{r}
+labels = c("ALL","AML","CLL","CML", "NoL")
+clases.label<-factor(clases$x,labels=labels)
+```
+
+Y la tabla finalmente queda asi:
+
+```{r}
+table(clases.label)
+```
+
+Creamos un dataframe que contiene las etiquetas, aqui podemos ver que tenemos los PCA con sus fenotipos correspondientes:
+
+```{r}
+ANNdatos = PCA_Normalizados
+ANNdatos$ALL = clases.label=="ALL"
+ANNdatos$AML = clases.label=="AML"
+ANNdatos$CLL = clases.label=="CLL"
+ANNdatos$CML = clases.label=="CML"
+ANNdatos$NoL = clases.label=="NoL"
+
+# Verificamos que se han añadido correctamente
+names(ANNdatos)
+```
+
+## Step 3 - Entrenamiento del modelo con los datos
+
+Ahora se va a entrenar el primer modelo con los datos de entrenamiento. Para ello, se utilizara la función `neuralnet` que esta en el paquete `neuralnet`. Este modelo tendra un nodo oculto.
+
+```{r}
+set.seed(12345)
+prueba_training=floor(0.67*nrow(ANNdatos))
+train=sample(seq_len(nrow(ANNdatos)),size=prueba_training)
+ANNtraining=ANNdatos[train,]
+ANNtest=ANNdatos[-train,]
+dim(ANNtraining)
+dim(ANNtest)
+```
+
+```{r}
+require(neuralnet)
+xnam = names(ANNdatos[1:10])
+(fmla = as.formula(paste("ALL+AML+CLL+CML+NoL ~ ", paste(xnam,collapse = "+"))))
+set.seed(1234567)
+ANNmodelo = neuralnet(fmla,data=ANNtraining,hidden = 1)
+```
+
+Ahora se representara el modelo con la función `plot`, queremos graficar para ver como se comporta el modelos
+
+```{r}
+plot(ANNmodelo,rep="best")
+```
+
+
+
+```{r}
+# ANN representation
+require(NeuralNetTools)
+plotnet (ANNmodelo, alpha=0.6)
+```
+
+## Step 4 - Evaluación de la ejecución del modelo
+
+Una vez obtenido el modelo, se evalua su rendimiento con los datos de test. Para ello se utilizara la función `compute`.
+
+```{r}
+ANNresultado= compute(ANNmodelo,ANNtest[1:10])$net.result
+maxidx=function(arr) {
+  return(which(arr == max(arr)))}
+
+idx= apply(ANNresultado,1,maxidx)
+prediction=factor(idx,levels = c(1,2,3,4,5), labels = labels)
+res= table(prediction, clases.label[-train])
+```
+
+Despues, se obtiene la matriz de confusion con las predicciones y las clases reales. para ello se utiliza la funcion `confusionMatrix` del paquete `caret`.
+
+```{r}
+require(caret)
+(confusion_matrix<-confusionMatrix(res))
+```
+
+Obtengo un Accuracy de 0.35 y un KAPPA de 0.195, son valores bajos  es un valor bajo, y estos dayos son debidos ANN se utiliza para problemas de clasificacion binaria.
+
+## Step 5 - Mejora de la ejecución del modelo
+
+El primer modelo tiene un nodo en la capa oculta. Para mejorar el modelo y el rendimiento utilizare un  modelo con 3 nodos ocultos en la capa oculta
+
+```{r}
+set.seed(1234567)
+ANNmodelo_5=neuralnet(fmla,data=ANNtraining,linear.output = TRUE, hidden=5)
+```
+
+Represento el modelo con 3 nodos ocultos
+
+```{r}
+plot(ANNmodelo_5,rep = "best") 
+```
+
+Mediante la función `plotnet` represento el grafico
+
+```{r}
+plotnet(ANNmodelo_5,alpha=0.6)
+```
+
+Hago la matriz de confusión es:
+
+```{r}
+ANNresultado_5=compute(ANNmodelo_5, ANNtest[1:10])$net.result
+idx=apply(ANNresultado_5,1,maxidx)
+prediction_5=factor(idx,levels=c(1,2,3,4,5),labels = labels)
+res5=table(prediction_5,clases.label[-train])
+(confusion_matrix<-confusionMatrix(res5))
+```
+
+Al hacer la matriz de confusion con 3 nodos he obtenido un Accuracy de 0.95 y un valor Kappa 0.9371, la sensibilidad y mejora del modelo ha mejorado bastante.
+
+### 3-fold crossvalidation
+Voy a usar el paquete aret, paa poder hacer el modelo con los 5 nodos.en la capa oculta usare el 3-fold crossvalidation.
+
+
+```{r}
+caretData<-PCA_10
+caretData$clase<-clases.label
+```
+
+Voy a hacer el crossvalidation con el método `nnet`, considerando que `size` indica el número de nodos en la capa oculta y `decay` para poder controlar el ajunte usare este parametro de regularizacion: 
+
+```{r}
+set.seed(1234567)
+model_cv<-train(clase ~ ., caretData, method="nnet",
+               trControl= trainControl(method="cv",number=3),
+               tuneGrid=data.frame(size=5,decay=c(0,0.0001,0.1)), trace= FALSE)
+```
+
+
+Hago varios graficos
+
+```{r}
+plot(model_cv, rep=best)
+require(NeuralNetTools)
+plotnet(model_cv,alpha=0.6)
+```
+
+```{r}
+model_cv
+summary(model_cv)
+```
+
+Al obtener los resultados el mejor valor  de `decay`de 0.1, obteniendo una precisión = 0.95 y una índice $\kappa$ = 0.9375.
+Los resultados que tengo con este modelo son casi iguales  a los obtenidos con el algoritmo ANN y 5 nodos en la capa oculta.
+
+\pagebreak
+
+# Algoritmo Support Vector Machine (SVM)
+
+Las maquinas de vectores de soporte (Support Vector Machines, SVM) son un conjunto de algoritmos de aprendizaje supervisado, dirigido tanto a la resolución de problemas de clasificación como de regresión.
+
+Los algoritmos de SVM se basan en buscar el hiperplano que tenga  mayor margen posible y de forma homogénea entre las clases. Estos algoritmos construyen un hiperplano o conjunto de hiperplanos en un espacio de dimensionalidad muy alta (o incluso infinita) para crear particiones bastante homogenéas a cada lado.
+
+Las aplicaciones mas utilizadas por el algoritmo son:
+
+- Clasificación de genes diferencialmente expresados partiendo de datos de microarrays.
+
+- Clasificación de texto en distintas categorías temáticas.
+
+- Detección de eventos críticos de escasa frecuencia, como terremotos.
+
+Cuando los datos no se pueden separar de forma lineal el uso de kernels es necesario.Los kernels más populares son el lineal y el gausiano, aunque existen otros como el polinomial, string kernel, chi-square kernel, etc.
+
+
+| **Fortalezas**    | **Debilidades**  | 
+| ----------------------------------- |:-----------------------------------|
+| - Se puede usar para problemas de clasificación o predicción numérica | - Encontrar el mejor modelo requiere probar diferentes kernels a base de prueba y error |
+| - Funciona bastante bien con datos ruidosos y no es muy propenso al overfitting | - A medida que aumenta el numero de caracteristicas, es lento de entrenar |
+| - Puede llegar a ser mas facil de usar que las redes neuronales (ANN) Debido a la existencia de varios algoritmos SVM bien soportados | - Los resultados del modelo son difícil, si no es imposible, de interpretar (caja negra)|
+| - Gana popularidad debido a su alta precisión y ganancias de alto perfil en competiciones de minería de datos | |
+
+
+## Step 1 - Descarga y lectura de los datos
+
+En el ejercicio del  algoritmo SVM usare todos los datos de expresión génica originales, no como en el caso del ANN que se limito a los 10 primeros componentes principales , y en mi caso use los datos del PCA que nos dio el profesor.
+
+```{r}
+datasvm <- read.csv("./data7 (5).csv")
+clases <- read.csv("./class7 (4).csv")
+dim(datasvm)
+```
+
+
+## Step 2 - Exploración y preparación de los datos
+
+Voy a poner las etiquetasm, que puse en el segundo ejercicio
+
+```{r}
+datasvm$clases <- clases.label
+```
+
+Voy a ver las primeras observaciones hare un summary de las primeras 10 observaciones, ya que si hago un summary de todo puede ser una autentica locura, ya que son 5043 variables
+
+```{r}
+summary(datasvm[,1:10])
+```
+
+Voy a separar las muestras en entrenamiento y test. antes lo hice en el ejercicio 2 pero con los datos del PCA, esta separacion la hare con los datos totales del data7.
+
+```{r}
+datasvm.training <- datasvm[train,]
+datasvm.test <- datasvm[-train,]
+```
+
+## Step 3 - Entrenamiento del modelo con los datos
+
+
+Se entrenara el modelo SVM lineal con los datos de entrenamiento. Para ello se utiliza la funcion `ksvm`del paquete `kernlab`.
+
+```{r}
+library(kernlab)
+set.seed(1234567)
+svmmodel<-ksvm(clases ~ ., data=datasvm.training,kernel="vanilladot")
+```
+```{r}
+svmmodel
+```
+
+
+## Step 4 - Evaluacion de la ejecución del modelo
+
+Una vez obtenido el modelo de SVM lineal, se evalua su rendimiento con los datos de test. Las muestras de los datos de test se clasificaran  mediante la función `predict`.
+
+```{r}
+require(caret)
+svm_prediction<-predict(svmmodel,datasvm.test)
+reslinear<-table(svm_prediction,datasvm.test$clase)
+(confusion_matrix.svm<-confusionMatrix(reslinear))
+```
+
+Obtengo un valor de precisión de 0.90 y un índice kappa de 0.875. Los valores de especificidad y sensibilidad son muy buenos.
+
+
+## Step 5 - Mejora de la ejecución del modelo
+
+Voy a realizar un modelo SVM con función `gaussiana` o `rbf`.
+
+```{r}
+set.seed(1234567)  
+modelo.rbf<-ksvm(clases ~., data= datasvm.training, kernel="rbfdot")
+```
+
+
+```{r}
+modelo.rbf
+```
+
+Con la función `compute` se evalua el rendimiento con los datos de test.
+
+```{r}
+rbf.prediction<-predict(modelo.rbf, datasvm.test)
+res.rbf<-table(rbf.prediction,datasvm.test$clase)
+```
+
+vuelvo a realizar la matriz de confusión para poder  calcular el rendimiento del algortmo `rbf` con las predicciones y las clases reales.
+
+
+```{r}
+(confirmar_matrix.rbf<- confusionMatrix(res.rbf))
+```
+
+
+Acabo de obtener el  algoritmo de SVM gaussiano tiene un valor de precisión de 0.85 y un índice kappa de 0.8131. he obtenido unos valores que son buenos, pero he visto que el valor es mejor el modelo anterior 
+
+### 3-fold crossvalidation
+
+El ultimo apartado es el  algoritmo SVM con la funcion lineal con 3-fold crossvalidation usare el paquete `caret`.
+
+
+El modelo de entrenamiento es:
+```{r}
+set.seed(1234567)
+model.svm<-train(clases ~ ., datasvm, method="svmLinear",
+                 trControl=trainControl(method="cv",number=3),
+                 tuneGrid= NULL, trace= FALSE)
+```
+
+```{r}
+model.svm
+```
+
+
+el resultado que he tenido con el algoritmo de SVM con 3-fold crossvalidation tiene una precisión = 0.98333 y un valor kappa = 0.9791667. Este  ultimo modelo es, el que mejor rendimiento  y mejor funciona de todos l los SVM testados.
+
+# Discusión final
+
+Los datos que he obtenido con  el algoritmo ANN, tanto el modelo de 5 nodos tanto en la capa oculta como el he realizado con la crossvalidation y utilizado un valor `decay`de 0.1 ha sido el que mejor resultado nos ha dado. 
+Sin embargo, los datos que he obtenido  con el algoritmo SVM, el mejor modelo es el que emplea la función lineal y 3-fold crossvalidation.
+
+
+# Referencias
+He tenido problemas al importar las referencias que es el libro de machine learnig de <@lantz2015machine>
+
+
+
